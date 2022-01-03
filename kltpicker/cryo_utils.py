@@ -3,38 +3,42 @@ from pyfftw.interfaces.numpy_fft import fft2, ifft2
 from pyfftw import FFTW
 from numpy.polynomial.legendre import leggauss
 from numba import jit
+
 try:
     import cupy as cp
 except:
     pass
+
 
 def downsample_gpu(image, size_out):
     """ 
     Use Fourier methods to change the sample interval and/or aspect ratio
     of any dimensions of the input image. Uses CuPy.
     """
-    x = cp.fft.fftshift(cp.fft.fft2(image))   
+    x = cp.fft.fftshift(cp.fft.fft2(image))
     # crop x:
-    nx, ny = x.shape   
-    nsx = int(cp.floor(nx/2) - cp.floor(size_out[1]/2))
-    nsy = int(cp.floor(ny/2) - cp.floor(size_out[0]/2))
-    fx = x[nsx : nsx + size_out[1], nsy : nsy + size_out[0]]
-    output = cp.fft.ifft2(cp.fft.ifftshift(fx)) * (cp.prod(cp.array(size_out)) / cp.prod(cp.array(image.shape)))  
+    nx, ny = x.shape
+    nsx = int(cp.floor(nx / 2) - cp.floor(size_out[1] / 2))
+    nsy = int(cp.floor(ny / 2) - cp.floor(size_out[0] / 2))
+    fx = x[nsx: nsx + size_out[1], nsy: nsy + size_out[0]]
+    output = cp.fft.ifft2(cp.fft.ifftshift(fx)) * (cp.prod(cp.array(size_out)) / cp.prod(cp.array(image.shape)))
     return cp.asnumpy(output.real)
+
 
 def downsample(image, size_out):
     """ 
     Use Fourier methods to change the sample interval and/or aspect ratio
     of any dimensions of the input image. 
     """
-    x = np.fft.fftshift(np.fft.fft2(image))   
+    x = np.fft.fftshift(np.fft.fft2(image))
     # crop x:
-    nx, ny = x.shape   
-    nsx = int(np.floor(nx/2) - np.floor(size_out[1]/2))
-    nsy = int(np.floor(ny/2) - np.floor(size_out[0]/2))
-    fx = x[nsx : nsx + size_out[1], nsy : nsy + size_out[0]]
-    output = np.fft.ifft2(np.fft.ifftshift(fx)) * (np.prod(size_out) / np.prod(image.shape))  
+    nx, ny = x.shape
+    nsx = int(np.floor(nx / 2) - np.floor(size_out[1] / 2))
+    nsy = int(np.floor(ny / 2) - np.floor(size_out[0] / 2))
+    fx = x[nsx: nsx + size_out[1], nsy: nsy + size_out[0]]
+    output = np.fft.ifft2(np.fft.ifftshift(fx)) * (np.prod(size_out) / np.prod(image.shape))
     return output.real
+
 
 def lgwt(n, a, b):
     """
@@ -61,6 +65,7 @@ def lgwt(n, a, b):
     w = m * w
     x = np.flipud(x)
     return x, w
+
 
 def cryo_epsds(image, samples_idx, max_d):
     """
@@ -102,31 +107,32 @@ def cryo_epsds(image, samples_idx, max_d):
     # Use the 1D autocorrelation estimated above to populate an array of the 2D
     # isotropic autocorrelction.
     r2 = autocorr_2d(max_d, x, r, p)
-    
+
     # Window the 2D autocorrelation and Fourier transform it to get the power
     # spectrum. Always use the Gaussian window, as it has positive Fourier
     # transform.     
     w = gwindow(p, max_d)
-    
+
     p2 = np.fft.fftshift(fft2(np.fft.ifftshift(r2 * w))).real
-    
+
     # Normalize the power spectrum P2. The power spectrum is normalized such
     # that its energy is equal to the average energy of the noise samples used
     # to estimate it.
     e = np.sum(np.square(image[samples_idx] - np.mean(image[samples_idx])))
     mean_e = e / len(samples_idx[0])
-    
+
     # Normalize p2 such that its mean energy is preserved and is equal to
     # mean_e. That way the mean energy does not go down if the number of 
     # pixels is artificially changed (say by upsampling, downsampling, or 
     # cropping). Note that p2 is already in units of energy, and so the total
     # energy is given by sum(p2) and not by norm(p2).
     p2 = (p2 / p2.sum()) * mean_e * p2.size
-    
+
     # Due to the truncation of the Gaussian window, we get small negative
     # values in p2, so we ignore them.
     p2 = np.where(p2 < 0, 0, p2)
     return p2
+
 
 def cryo_epsdr(image, samples_idx, max_d):
     """
@@ -156,7 +162,7 @@ def cryo_epsdr(image, samples_idx, max_d):
 
     """
     p = image.shape[0]
-    
+
     # Generate all possible squared distances. For a vertical shift i and 
     # horizontal shift j, dists(i,j) contains the corresponding isotropic 
     # correlation distance i^2+j^2. dsquare is then the set of all possible 
@@ -165,8 +171,8 @@ def cryo_epsdr(image, samples_idx, max_d):
     i = np.array([[x for x in range(max_d + 1)] for x in range(max_d + 1)])
     dists = i ** 2 + i.transpose() ** 2
     dsquare = np.sort(np.unique(dists[np.where(dists <= max_d ** 2)]))
-    x = dsquare ** 0.5 # Distances at which the correlations are computed.
-    
+    x = dsquare ** 0.5  # Distances at which the correlations are computed.
+
     # Create a distance map whose value at the index (i,j) is the index in the
     # array dsquare whose value is i^2+j^2. Pairs (i,j) that correspond to
     # distances that are larger than max_d are indicated by (-1).   
@@ -185,10 +191,10 @@ def cryo_epsdr(image, samples_idx, max_d):
     ftmp = fft2(tmp)
     c = ifft2(ftmp * np.conj(ftmp))
     c = c[:max_d + 1, :max_d + 1]
-    c = np.round(c.real).astype('int') 
+    c = np.round(c.real).astype('int')
 
-    r = np.zeros(len(dsquare)) # r(i) is the value of the ACF at distance x(i)
-    
+    r = np.zeros(len(dsquare))  # r(i) is the value of the ACF at distance x(i)
+
     # Compute non-periodic autocorrelation of masked image with itself (mask
     # all pixels that are not used to autocorrelation estimation).
     input_fft2 = np.zeros((2 * p + 1, 2 * p + 1), dtype='complex128')
@@ -199,13 +205,13 @@ def cryo_epsdr(image, samples_idx, max_d):
     a_fft2 = FFTW(input_fft2, output_fft2, axes=(0, 1), direction='FFTW_FORWARD', flags=flags)
     a_ifft2 = FFTW(input_ifft2, output_ifft2, axes=(0, 1), direction='FFTW_BACKWARD', flags=flags)
     sum_c = c
-    
+
     input_fft2[samples_idx] = image[samples_idx]
     a_fft2()
     np.multiply(output_fft2, np.conj(output_fft2), out=input_ifft2)
     a_ifft2()
     sum_s = output_ifft2
-    
+
     # Accumulate all autocorrelation values R(k1,k2) such that k1^2+k2^2=const 
     # (all autocorrelations of a certain distance).
     # corrs(i) contains the sum of all products of the form x(j)x(j+d), where
@@ -222,6 +228,7 @@ def cryo_epsdr(image, samples_idx, max_d):
     r[idx] = 0
     x[idx] = 0
     return r, x, cnt
+
 
 @jit(nopython=True)
 def accumelate_corrs(dsquare_len, valid_dists, dist_map, sum_c, sum_s):
@@ -240,7 +247,8 @@ def accumelate_corrs(dsquare_len, valid_dists, dist_map, sum_c, sum_s):
         corr_count[dmidx] += sum_c[curr_dist]
     return corr_count, corrs
 
-@jit(nopython=True)        
+
+@jit(nopython=True)
 def autocorr_2d(max_d, x, r, p):
     """
     Use the 1D autocorrelation r, x to populate an array r2 of the 2D
@@ -272,8 +280,9 @@ def autocorr_2d(max_d, x, r, p):
             d = i ** 2 + j ** 2
             if d <= max_d ** 2:
                 idx, _ = bsearch(dsquare, d * (1 - 1e-13), d * (1 + 1e-13))
-                r2[i + p - 1, j + p - 1] = r[int(idx) - 1]        
+                r2[i + p - 1, j + p - 1] = r[int(idx) - 1]
     return r2
+
 
 @jit(nopython=True)
 def distmap(max_d, dsquare, dists_shape):
@@ -291,6 +300,7 @@ def distmap(max_d, dsquare, dists_shape):
                 dist_map[i, j] = idx
     dist_map = dist_map.astype(np.int32) - 1
     return dist_map
+
 
 @jit(nopython=True)
 def gwindow(p, max_d):
@@ -319,6 +329,7 @@ def gwindow(p, max_d):
     # details. 
     w = np.exp(-alpha * (x ** 2 + x.transpose() ** 2) / (2 * max_d ** 2))
     return w
+
 
 @jit(nopython=True)
 def bsearch(x, lower_bound, upper_bound):
@@ -389,6 +400,7 @@ def bsearch(x, lower_bound, upper_bound):
 
     return lower_idx, upper_idx
 
+
 def cryo_prewhiten(image, noise_response):
     """
     Pre-whiten a projection using the power spectrum of the noise.
@@ -434,7 +446,7 @@ def cryo_prewhiten(image, noise_response):
     # transform of the padded image with this.
     one_over_fnz_as_mat = np.zeros((noise_response.shape[0], noise_response.shape[1]))
     one_over_fnz_as_mat[nzidx] += one_over_fnz
-    
+
     # Pad the input projection.
     pp = np.zeros((noise_response.shape[0], noise_response.shape[1]))
     p2 = np.zeros((L1, L2), dtype='complex128')
@@ -446,9 +458,9 @@ def cryo_prewhiten(image, noise_response):
         row_end_idx -= 1
         col_end_idx -= 1
     pp[row_start_idx:row_end_idx, col_start_idx:col_end_idx] = image.copy()
-    
+
     # Take the Fourier transform of the padded image.
-    fp = np.fft.fftshift(np.transpose(fft2(np.transpose(np.fft.ifftshift(pp)))))   
+    fp = np.fft.fftshift(np.transpose(fft2(np.transpose(np.fft.ifftshift(pp)))))
     # Divide the image by the whitening filter, but only in places where the 
     # filter is large. In frequecies where the filter is tiny  we cannot 
     # pre-whiten so we just put zero.
@@ -458,6 +470,7 @@ def cryo_prewhiten(image, noise_response):
     # The resulting image should be real.
     p2 = np.real(pp2[row_start_idx:row_end_idx, col_start_idx:col_end_idx]).copy()
     return p2
+
 
 def cryo_prewhiten_gpu(image, noise_response):
     """
@@ -488,12 +501,12 @@ def cryo_prewhiten_gpu(image, noise_response):
     # Also, normalize the energy of the filter to one.
     filter_var = np.sqrt(noise_response)
     filter_var /= np.linalg.norm(filter_var)
-    
+
     # The filter should be circularly symmetric. In particular, it is up-down
     # and left-right symmetric. Get rid of any tiny asymmetries in the filter:
     filter_var = (filter_var + np.flipud(filter_var)) / 2
     filter_var = (filter_var + np.fliplr(filter_var)) / 2
-    
+
     # The filter may have very small values or even zeros. We don't want to
     # process these so make a list of all large entries.
     nzidx = np.where(filter_var > 100 * delta)
@@ -505,7 +518,7 @@ def cryo_prewhiten_gpu(image, noise_response):
     # transform of the padded image with this.
     one_over_fnz_as_mat = np.zeros((noise_response.shape[0], noise_response.shape[1]))
     one_over_fnz_as_mat[nzidx] += one_over_fnz
-    
+
     # Pad the input projection.
     pp = cp.zeros((noise_response.shape[0], noise_response.shape[1]))
     p2 = np.zeros((L1, L2), dtype='complex128')
@@ -517,7 +530,7 @@ def cryo_prewhiten_gpu(image, noise_response):
         row_end_idx -= 1
         col_end_idx -= 1
     pp[row_start_idx:row_end_idx, col_start_idx:col_end_idx] = cp.asarray(image)
-    
+
     # Take the Fourier transform of the padded image.
     fp = cp.fft.fftshift(cp.transpose(cp.fft.fft2(cp.transpose(cp.fft.ifftshift(pp)))))
     # Divide the image by the whitening filter, but only in places where the 
@@ -529,6 +542,7 @@ def cryo_prewhiten_gpu(image, noise_response):
     # The resulting image should be real.
     p2 = cp.real(pp2[row_start_idx:row_end_idx, col_start_idx:col_end_idx])
     return cp.asnumpy(p2)
+
 
 def als_find_min(sreal, eps, max_iter):
     """
@@ -600,6 +614,7 @@ def als_find_min(sreal, eps, max_iter):
             break
     return approx_clean_psd, approx_noise_psd, alpha_approx, stop_par
 
+
 def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_size):
     idx_row = np.arange(log_test_n.shape[0])
     idx_col = np.arange(log_test_n.shape[1])
@@ -607,7 +622,7 @@ def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_si
     r_del = np.floor(kltpicker.patch_size_pick_box)
     shape = (log_test_n.shape[1], log_test_n.shape[0])
     log_max = np.max(log_test_n)
-   
+
     # preparing particle output files:
     box_path = kltpicker.output_particles / 'box'
     star_path = kltpicker.output_particles / 'star'
@@ -625,7 +640,7 @@ def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_si
     # picking particles: 
     scoring_mat = log_test_n.copy()
     if kltpicker.num_of_particles == -1:  # pick all particles.
-        num_picked = 0     
+        num_picked = 0
         p_max = kltpicker.threshold + 1
         while num_picked <= kltpicker.max_iter and p_max > kltpicker.threshold:
             max_index = np.argmax(scoring_mat.transpose().flatten())
@@ -640,18 +655,21 @@ def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_si
                 col_idx_b = col_idx - index_col
                 rsquare = row_idx_b ** 2 + col_idx_b ** 2
                 scoring_mat[rsquare <= (r_del ** 2)] = -np.inf
-                ri, rf = max(ind_row_patch-t, 0), min(ind_row_patch + t + 1, phi_seg.shape[0])
-                ci, cf = max(ind_col_patch-t, 0), min(ind_col_patch + t + 1, phi_seg.shape[1])
+                ri, rf = max(ind_row_patch - t, 0), min(ind_row_patch + t + 1, phi_seg.shape[0])
+                ci, cf = max(ind_col_patch - t, 0), min(ind_col_patch + t + 1, phi_seg.shape[1])
                 if np.any(phi_seg[ri: rf, ci: cf]):
                     continue
                 box_file.write(
-                    '%i\t%i\t%i\t%i\n' % (np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1 - np.floor(kltpicker.patch_size_pick_box / 2))),
+                    '%i\t%i\t%i\t%i\n' % (np.round(
+                        (1 / kltpicker.mgscale) * (ind_col_patch + 1 - np.floor(kltpicker.patch_size_pick_box / 2))),
                                           np.round((mg_big_size[1] + 1) - (1 / kltpicker.mgscale) * (
-                                                      ind_row_patch + 1 + np.floor(kltpicker.patch_size_pick_box / 2))),
-                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box), np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box)))           
+                                                  ind_row_patch + 1 + np.floor(kltpicker.patch_size_pick_box / 2))),
+                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box),
+                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box)))
                 star_file.write('%i\t%i\t%f\n' % (
-                np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1)), np.round((mg_big_size[1] + 1) - ((1 / kltpicker.mgscale) * (ind_row_patch + 1))),
-                p_max / log_max))
+                    np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1)),
+                    np.round((mg_big_size[1] + 1) - ((1 / kltpicker.mgscale) * (ind_row_patch + 1))),
+                    p_max / log_max))
                 num_picked += 1
         star_file.close()
         box_file.close()
@@ -660,7 +678,7 @@ def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_si
     else:  # pick only the number of particles specified by user.
         num_picked = 0
         p_max = kltpicker.threshold + 1
-        while num_picked <= kltpicker.max_iter and num_picked <= kltpicker.num_of_particles-1 and p_max > kltpicker.threshold:
+        while num_picked <= kltpicker.max_iter and num_picked <= kltpicker.num_of_particles - 1 and p_max > kltpicker.threshold:
             max_index = np.argmax(scoring_mat.transpose().flatten())
             p_max = scoring_mat.transpose().flatten()[max_index]
             if not p_max > kltpicker.threshold:
@@ -673,23 +691,26 @@ def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_si
                 col_idx_b = col_idx - index_col
                 rsquare = row_idx_b ** 2 + col_idx_b ** 2
                 scoring_mat[rsquare <= (r_del ** 2)] = -np.inf
-                ri, rf = max(ind_row_patch-t, 0), min(ind_row_patch + t + 1, phi_seg.shape[0])
-                ci, cf = max(ind_col_patch-t, 0), min(ind_col_patch + t + 1, phi_seg.shape[1])
+                ri, rf = max(ind_row_patch - t, 0), min(ind_row_patch + t + 1, phi_seg.shape[0])
+                ci, cf = max(ind_col_patch - t, 0), min(ind_col_patch + t + 1, phi_seg.shape[1])
                 if np.any(phi_seg[ri: rf, ci: cf]):
                     continue
                 box_file.write(
-                    '%i\t%i\t%i\t%i\n' % (np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1 - np.floor(kltpicker.patch_size_pick_box / 2))),
+                    '%i\t%i\t%i\t%i\n' % (np.round(
+                        (1 / kltpicker.mgscale) * (ind_col_patch + 1 - np.floor(kltpicker.patch_size_pick_box / 2))),
                                           np.round((mg_big_size[1] + 1) - (1 / kltpicker.mgscale) * (
-                                                      ind_row_patch + 1 + np.floor(kltpicker.patch_size_pick_box / 2))),
-                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box), np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box)))
+                                                  ind_row_patch + 1 + np.floor(kltpicker.patch_size_pick_box / 2))),
+                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box),
+                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box)))
                 star_file.write('%i\t%i\t%f\n' % (
-                np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1)), np.round((mg_big_size[1] + 1) - ((1 / kltpicker.mgscale) * (ind_row_patch + 1))),
-                p_max / log_max))
+                    np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1)),
+                    np.round((mg_big_size[1] + 1) - ((1 / kltpicker.mgscale) * (ind_row_patch + 1))),
+                    p_max / log_max))
                 num_picked += 1
         star_file.close()
         box_file.close()
         num_picked_particles = num_picked
-    
+
     # pick noise:    
     if kltpicker.num_of_noise_images != 0:
         scoring_mat = log_test_n.copy()
@@ -707,9 +728,9 @@ def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_si
         box_file = open(box_path / mrc_name.replace('.mrc', '.box'), 'w')
         star_file = open(star_path / mrc_name.replace('.mrc', '.star'), 'w')
         star_file.write('data_\n\nloop_\n_rlnCoordinateX #1\n_rlnCoordinateY #2\n')
-        
+
         num_picked = 0
-        while num_picked <= kltpicker.num_of_noise_images-1 and p_min < kltpicker.threshold:
+        while num_picked <= kltpicker.num_of_noise_images - 1 and p_min < kltpicker.threshold:
             min_index = np.argmin(scoring_mat.transpose().flatten())
             p_min = scoring_mat.transpose().flatten()[min_index]
             if not p_min < kltpicker.threshold:
@@ -722,24 +743,25 @@ def picking_from_scoring_mat(log_test_n, phi_seg, mrc_name, kltpicker, mg_big_si
                 col_idx_b = col_idx - index_col
                 rsquare = row_idx_b ** 2 + col_idx_b ** 2
                 scoring_mat[rsquare <= (r_del ** 2)] = np.inf
-                ri, rf = max(ind_row_patch-t, 0), min(ind_row_patch + t + 1, phi_seg.shape[0])
-                ci, cf = max(ind_col_patch-t, 0), min(ind_col_patch + t + 1, phi_seg.shape[1])
+                ri, rf = max(ind_row_patch - t, 0), min(ind_row_patch + t + 1, phi_seg.shape[0])
+                ci, cf = max(ind_col_patch - t, 0), min(ind_col_patch + t + 1, phi_seg.shape[1])
                 if np.any(phi_seg[ri: rf, ci: cf]):
                     continue
                 box_file.write(
-                    '%i\t%i\t%i\t%i\n' % (np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1 - np.floor(kltpicker.patch_size_pick_box / 2))),
+                    '%i\t%i\t%i\t%i\n' % (np.round(
+                        (1 / kltpicker.mgscale) * (ind_col_patch + 1 - np.floor(kltpicker.patch_size_pick_box / 2))),
                                           np.round((mg_big_size[1] + 1) - (1 / kltpicker.mgscale) * (
-                                                      ind_row_patch + 1 + np.floor(kltpicker.patch_size_pick_box / 2))),
-                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box), np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box)))
-                star_file.write('%i\t%i\n' % (np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1)), np.round((mg_big_size[1] + 1) - ((1 / kltpicker.mgscale) * (ind_row_patch + 1)))))
+                                                  ind_row_patch + 1 + np.floor(kltpicker.patch_size_pick_box / 2))),
+                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box),
+                                          np.round((1 / kltpicker.mgscale) * kltpicker.patch_size_pick_box)))
+                star_file.write('%i\t%i\n' % (np.round((1 / kltpicker.mgscale) * (ind_col_patch + 1)), np.round(
+                    (mg_big_size[1] + 1) - ((1 / kltpicker.mgscale) * (ind_row_patch + 1)))))
                 num_picked += 1
         star_file.close()
         box_file.close()
         num_picked_noise = num_picked
-           
+
     else:
         num_picked_noise = 0
-            
+
     return num_picked_particles, num_picked_noise
-
-

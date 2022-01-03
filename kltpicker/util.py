@@ -2,10 +2,12 @@ import numpy as np
 from scipy import signal
 from scipy.ndimage import uniform_filter
 from scipy.fftpack import fftshift
+
 try:
     import cupy as cp
 except:
     pass
+
 
 def fftcorrelate(image, filt):
     """
@@ -23,7 +25,7 @@ def fftcorrelate(image, filt):
     result : numpy.ndarray
         A 2-dimensional array containing a subset of the discrete linear 
         cross-correlation of image with filt.
-    """  
+    """
     filt = np.rot90(filt, 2)
     pad_shift = 1 - np.mod(np.array(filt.shape), 2)
     filt_center = np.floor((np.array(filt.shape) + 1) / 2).astype("int")
@@ -34,6 +36,7 @@ def fftcorrelate(image, filt):
         padded_image = padded_image[pad_shift[0] - 1: -1, pad_shift[1] - 1: -1]
     result = signal.fftconvolve(padded_image, filt, 'valid')
     return result
+
 
 def f_trans_2(b):
     """
@@ -74,6 +77,7 @@ def f_trans_2(b):
     h = np.rot90(h, k=2)
     return h
 
+
 def radial_avg(z, m, bins):
     """
     Radially average 2-D square matrix z into m bins.
@@ -103,16 +107,18 @@ def radial_avg(z, m, bins):
     for j in range(m):
         n = bins[j][0].size
         if n:
-            zr[j] += np.sum(z[bins[j]])/n
+            zr[j] += np.sum(z[bins[j]]) / n
         else:
             zr[j] = np.nan
     return zr
+
 
 def stdfilter(a, nhood):
     "Local standard deviation of image."
     c1 = uniform_filter(a, nhood, mode='reflect')
     c2 = uniform_filter(a * a, nhood, mode='reflect')
     return np.sqrt(c2 - c1 * c1) * np.sqrt(nhood ** 2. / (nhood ** 2 - 1))
+
 
 def trig_interpolation_mat(x, xq):
     """
@@ -153,6 +159,7 @@ def trig_interpolation_mat(x, xq):
             mat[:, k] = a
     return mat
 
+
 def trig_interpolation(x, y, xq):
     """   
     Trigonometric interpolation.
@@ -189,6 +196,7 @@ def trig_interpolation(x, y, xq):
             p = p + y[k] * a
     return p
 
+
 def fftconvolve2d_gpu(x, y):
     """
     Convolve two 2-dimensional arrays using FFT, utilizing CuPy.
@@ -210,8 +218,8 @@ def fftconvolve2d_gpu(x, y):
     """
     xn, xm = x.shape
     yn, ym = y.shape
-    zn = xn + yn -1
-    zm = xm + ym -1
+    zn = xn + yn - 1
+    zm = xm + ym - 1
     z = cp.fft.ifft2(cp.fft.fft2(x, s=(zn, zm)) * cp.fft.fft2(y, s=(zn, zm))).real
     valid_n = xn - yn + 1
     valid_m = xm - ym + 1

@@ -16,6 +16,7 @@ MAX_ITER = 6 * (10 ** 4)
 MAX_ORDER = 100
 THRESHOLD = 0
 
+
 class KLTPicker:
     """
     KLTpicker object that holds all variables that are used in the computations.
@@ -134,7 +135,7 @@ class KLTPicker:
         r_rho = np.outer(r, rho)
         rsamp_r = np.outer(np.ones(len(rsamp)), r)
         rsamp_rho = np.outer(rsamp, rho)
-        pool = Pool(max(cpu_count()-2, 1))
+        pool = Pool(max(cpu_count() - 2, 1))
         res_j_r_rho = pool.starmap(ssp.jv, [(n, r_rho) for n in range(self.max_order)])
         res_j_samp = pool.starmap(ssp.jv, [(n, rsamp_rho) for n in range(self.max_order)])
         pool.close()
@@ -171,4 +172,3 @@ class KLTPicker:
         Row, Col = np.meshgrid(row, col)
         self.rad_mat_prewhite = np.sqrt(Col ** 2 + Row ** 2)
         self.rsamp_prewhite, self.idx_rsamp_prewhite = unique_tol(self.rad_mat_prewhite.flatten('F'), 1e-14)
-

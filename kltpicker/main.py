@@ -5,22 +5,26 @@ from sys import exit, argv
 import numpy as np
 from .kltpicker import KLTPicker
 from .util import trig_interpolation
-from .kltpicker_input import parse_args, get_args, progress_bar, check_num_finished, check_for_newer_version, check_output_dir
+from .kltpicker_input import parse_args, get_args, progress_bar, check_num_finished, check_for_newer_version, \
+    check_output_dir
 import mrcfile
 from .micrograph import Micrograph
 from .cryo_utils import downsample
 import multiprocessing as mp
 import os
 import time
+
 warnings.filterwarnings("ignore")
 
 # Check if CuPy is installed and we have GPU devices
 try:
     import cupy as cp
+
     cp.cuda.runtime.getDeviceCount()
     HAS_CUPY = 1
 except:
     HAS_CUPY = 0
+
 
 def process_micrograph(micrograph, picker):
     micrograph.estimate_rpsd(picker.patch_size, picker.max_iter)
@@ -32,6 +36,7 @@ def process_micrograph(micrograph, picker):
     micrograph.construct_klt_templates(picker)
     num_picked_particles, num_picked_noise = micrograph.detect_particles(picker)
     return [micrograph.mrc_name, num_picked_particles, num_picked_noise]
+
 
 def get_micrograph(mrc_file, picker):
     """Reads an mrc file and downsamples it."""
@@ -66,20 +71,22 @@ def get_micrograph(mrc_file, picker):
     micrograph = Micrograph(mrc_data, phi_seg, mc_size, mrc_file.name, mrc_size)
     return micrograph
 
+
 def get_mempool_usage(param, gpu_index):
     """
     Calculate how much memory is used in the GPU by a single process on one mrc.
 
     """
-    with cp.cuda.Device(gpu_index):    
+    with cp.cuda.Device(gpu_index):
         mrc_file = param[0]
         picker = param[1]
         start = cp.cuda.runtime.memGetInfo()[0]
         micrograph = get_micrograph(mrc_file, picker)
         process_micrograph(micrograph, picker)
         finish = cp.cuda.runtime.memGetInfo()[0]
-        mem_usage = (start-finish)*1.2
+        mem_usage = (start - finish) * 1.2
         return mem_usage
+
 
 def calc_procs_per_gpu(mem_usage, max_processes, gpu_indices):
     """
@@ -90,14 +97,15 @@ def calc_procs_per_gpu(mem_usage, max_processes, gpu_indices):
     procs_per_gpu = {}
     for gpu_index in gpu_indices:
         if sum(procs_per_gpu.values()) < num_available_cpus:
-            cp.cuda.runtime.setDevice(gpu_index)	
+            cp.cuda.runtime.setDevice(gpu_index)
             free_mem = cp.cuda.runtime.memGetInfo()[0]
-            procs_per_gpu[gpu_index] = min(np.floor(free_mem/mem_usage), num_available_cpus - sum(procs_per_gpu.values()))
+            procs_per_gpu[gpu_index] = min(np.floor(free_mem / mem_usage),
+                                           num_available_cpus - sum(procs_per_gpu.values()))
         else:
             procs_per_gpu[gpu_index] = 0
     return procs_per_gpu
 
-    
+
 def multi_process_micrograph_gpu(param):
     """
     Process micrographs in parallel, using GPU.
@@ -109,11 +117,14 @@ def multi_process_micrograph_gpu(param):
     with cp.cuda.Device(gpu_index):
         micrograph = get_micrograph(mrc_file, picker)
         summary = process_micrograph(micrograph, picker)
-    if picker.verbose: # User requested detailed output.
+    if picker.verbose:  # User requested detailed output.
         num_finished = check_num_finished(picker.output_particles / 'star', picker.start_time)
-        print(time.strftime("%H:%M:%S", time.gmtime(time.time() - picker.start_time)) + " - Picked %d particles and %d noise images out of %s. (%3d%s)" %(summary[1], summary[2], summary[0], round(num_finished/picker.num_mrcs*100), "%"))
+        print(time.strftime("%H:%M:%S", time.gmtime(
+            time.time() - picker.start_time)) + " - Picked %d particles and %d noise images out of %s. (%3d%s)" % (
+              summary[1], summary[2], summary[0], round(num_finished / picker.num_mrcs * 100), "%"))
     return summary
-        
+
+
 def multi_process_micrograph(param):
     """
     Process micrographs in parallel, no GPU.
@@ -123,12 +134,14 @@ def multi_process_micrograph(param):
     picker = param[1]
     micrograph = get_micrograph(mrc_file, picker)
     summary = process_micrograph(micrograph, picker)
-    if picker.verbose: # User requested detailed output.
+    if picker.verbose:  # User requested detailed output.
         num_finished = check_num_finished(picker.output_particles / 'star', picker.start_time)
-        print(time.strftime("%H:%M:%S", time.gmtime(time.time() - picker.start_time)) + " - Picked %d particles and %d noise images out of %s. (%3d%s)" %(summary[1], summary[2], summary[0], round(num_finished/picker.num_mrcs*100), "%"))
+        print(time.strftime("%H:%M:%S", time.gmtime(
+            time.time() - picker.start_time)) + " - Picked %d particles and %d noise images out of %s. (%3d%s)" % (
+              summary[1], summary[2], summary[0], round(num_finished / picker.num_mrcs * 100), "%"))
     return summary
 
- 
+
 def multi_process_micrograph_pool(gpu_index, num_procs, batch, shared_list):
     """
     A wrapper function that allows processing many micrographs in parallel using
@@ -141,6 +154,7 @@ def multi_process_micrograph_pool(gpu_index, num_procs, batch, shared_list):
     with mp.Pool(processes=int(num_procs)) as pool:
         shared_list += [x for x in pool.imap_unordered(multi_process_micrograph_gpu, batch, chunksize=7)]
 
+
 def get_mrc_batches(params, cpus_per_gpu):
     """
     Split the mrc files into batches proportionally sized to the number of
@@ -152,10 +166,11 @@ def get_mrc_batches(params, cpus_per_gpu):
     batch_sizes = np.ceil(len(params) * cpus / np.sum(cpus))
     indices = np.zeros(len(batch_sizes) + 1).astype(int)
     indices[1:] = np.cumsum(batch_sizes).astype("int")
-    param_batches = [params[indices[i]:indices[i+1]] for i in range(len(indices)-1)]
+    param_batches = [params[indices[i]:indices[i + 1]] for i in range(len(indices) - 1)]
     for i in range(len(param_batches)):
         batches[gpus[i]] = param_batches[i]
     return batches
+
 
 def preprocess_klt_prewhite(kltpicker, mrc_file):
     # Continue preprocess picker
@@ -166,6 +181,7 @@ def preprocess_klt_prewhite(kltpicker, mrc_file):
     mrc_size = np.array(mrc_data.shape)
     kltpicker.preprocess_prewhiten(mrc_size)
 
+
 def main():
     try:
         check_for_newer_version()
@@ -174,59 +190,62 @@ def main():
     # Because of CUDA limitations, it is impossible to fork processes after 
     # invoking CUDA. So we need to use 'spawn' start method instead.
     mp.set_start_method('spawn', force=True)
-    
+
     # Get user arguments:
     user_input = argv
-    if len(user_input) > 1: # User entered arguments. Use command line mode.
+    if len(user_input) > 1:  # User entered arguments. Use command line mode.
         args = parse_args(HAS_CUPY)
         # Check if user entered the mandatory arguments: input and output 
         # directory and particle size. If not, exit.
         if args.output_dir is None or args.input_dir is None or args.particle_size is None:
-            print("Error: one or more of the following arguments are missing: input-dir, output-dir, particle-size. For help run kltpicker -h")
+            print(
+                "Error: one or more of the following arguments are missing: input-dir, output-dir, particle-size. For help run kltpicker -h")
             exit()
         else:
             num_finished_output = check_output_dir(Path(args.input_dir), Path(args.output_dir), args.particle_size)
             if num_finished_output == 2:
-                print("The output directory contains coordinate files for all of the micrographs in the input directory. Aborting...")
+                print(
+                    "The output directory contains coordinate files for all of the micrographs in the input directory. Aborting...")
                 exit()
             elif num_finished_output == 1:
                 pass
             elif num_finished_output == 0:
                 print("Could not find any .mrc files in %s. \nExiting..." % args.input_dir)
-                exit(0)        
+                exit(0)
             else:
                 if not args.only_do_unfinished:
-                    print("The output directory contains coordinate files for some of the micrographs in the input directory. Use --only-do-unfinished if needed. Aborting...")
+                    print(
+                        "The output directory contains coordinate files for some of the micrographs in the input directory. Use --only-do-unfinished if needed. Aborting...")
                     exit()
 
-    else: # User didn't enter arguments, use interactive mode to get arguments.
-        args = parse_args(HAS_CUPY) # Initiate args with default values.
-        args.input_dir, args.output_dir, args.particle_size, args.num_particles, args.num_noise, args.use_asocem, args.no_gpu, args.gpus, args.verbose, args.max_processes, args.only_do_unfinished = get_args(HAS_CUPY)
-    
+    else:  # User didn't enter arguments, use interactive mode to get arguments.
+        args = parse_args(HAS_CUPY)  # Initiate args with default values.
+        args.input_dir, args.output_dir, args.particle_size, args.num_particles, args.num_noise, args.use_asocem, args.no_gpu, args.gpus, args.verbose, args.max_processes, args.only_do_unfinished = get_args(
+            HAS_CUPY)
+
     # Handle user options:     
     # If max_processes limit not set, set it to infinity.
     if args.max_processes == -1:
         args.max_processes = np.inf
-    
+
     # Find number of .mrc files in input directory. 
     # Check if output directory already contains any output coordinate files 
     # for the micrographs in the input directory. If so, remove these 
     # micrographs from the micrographs to be processed.
-    
+
     mrc_files = check_output_dir(Path(args.input_dir), Path(args.output_dir), args.particle_size)
-    if mrc_files == 1: # Need to process all the micrographs in the input dir. 
+    if mrc_files == 1:  # Need to process all the micrographs in the input dir.
         mrc_files = list(Path(args.input_dir).glob("*.mrc"))
     print("\nRunning on %i files." % len(mrc_files))
-    
+
     if not args.no_gpu:
-        print("Using GPUs %s."%(", ".join([str(x) for x in args.gpus])))
-    if not Path(args.output_dir).exists(): # If the output directory doesn't exist, create it.
+        print("Using GPUs %s." % (", ".join([str(x) for x in args.gpus])))
+    if not Path(args.output_dir).exists():  # If the output directory doesn't exist, create it.
         Path.mkdir(args.output_dir)
-    
-    picker = KLTPicker(args) # Initiate picker object.
+
+    picker = KLTPicker(args)  # Initiate picker object.
     picker.num_mrcs = len(mrc_files)
-    
-    
+
     # Preprocessing. If using GPU, preprocessing includes the calculation of 
     # memory that is taken up in the processing of a single micrograph in the
     # GPU.
@@ -235,30 +254,32 @@ def main():
     preprocess_klt_prewhite(picker, mrc_files[0])
 
     params = [[mrc_file, picker] for mrc_file in mrc_files]
-    
-    if args.no_gpu: # GPU is disabled by user/not available on system.
+
+    if args.no_gpu:  # GPU is disabled by user/not available on system.
         print("Preprocess finished. Picking particles...")
         os.environ["NUMBA_DISABLE_CUDA"] = "1"  # Disable use of CUDA by NUMBA.
-        if not picker.verbose: # Display simple progress bar.
-            p = mp.Process(target=progress_bar, args=[picker.output_particles / "star", len(mrc_files)], name="KLTPicker_ProgressBar")
-            p.start() 
-        # Pick particles. The number of concurrent processes is the minimum of
+        if not picker.verbose:  # Display simple progress bar.
+            p = mp.Process(target=progress_bar, args=[picker.output_particles / "star", len(mrc_files)],
+                           name="KLTPicker_ProgressBar")
+            p.start()
+            # Pick particles. The number of concurrent processes is the minimum of
         # the limit set by the user and two less than the number of CPUs on the machine.
         with mp.Pool(processes=min(args.max_processes, mp.cpu_count() - 2)) as pool:
             # imap creates an iterator so we don't exhaust the machine's memory (as opposed to map). imap_unordered is slightly faster than imap.
             res = [x for x in pool.imap_unordered(multi_process_micrograph, params)]
 
-    else: # Using GPU.
+    else:  # Using GPU.
         # Calculate the memory usage of the GPU by a single process on one micrograph.
-        mem_usage = get_mempool_usage(params[0], args.gpus[0])    
+        mem_usage = get_mempool_usage(params[0], args.gpus[0])
         print("Preprocess finished. Picking particles...")
-        
+
         # Calculate the number of processes to run on each GPU, and partition
         # the micrographs into batches to be passed to each GPU.
         procs_per_gpu = calc_procs_per_gpu(mem_usage, args.max_processes, args.gpus)
         batches = get_mrc_batches(params, procs_per_gpu)
-        if not picker.verbose: # Display simple progress bar.
-            p = mp.Process(target=progress_bar, args=[picker.output_particles / "star", len(mrc_files)], name="KLTPicker_ProgressBar")
+        if not picker.verbose:  # Display simple progress bar.
+            p = mp.Process(target=progress_bar, args=[picker.output_particles / "star", len(mrc_files)],
+                           name="KLTPicker_ProgressBar")
             p.start()
         # We have multiple processes writing results to the same "res" object,
         # so we need a manager (in the version without GPU the pool function
@@ -271,14 +292,15 @@ def main():
         jobs = []
         for i in procs_per_gpu:
             if procs_per_gpu[i]:
-                p = mp.Process(target=multi_process_micrograph_pool, args=[i, int(procs_per_gpu[i]), batches[i], res], name="KLTPicker%d"%i)
+                p = mp.Process(target=multi_process_micrograph_pool, args=[i, int(procs_per_gpu[i]), batches[i], res],
+                               name="KLTPicker%d" % i)
                 jobs.append(p)
-                p.start()       
+                p.start()
         for proc in jobs:
             proc.join()
-    
+
     # Write summary file and print summary to user.
     num_files = len(res)
     num_particles = sum([row[1] for row in res])
-    num_noise = sum([row[2] for row in res]) 
-    print("Picked %d particles and %d noise images out of %d micrographs." %(num_particles, num_noise, num_files))
+    num_noise = sum([row[2] for row in res])
+    print("Picked %d particles and %d noise images out of %d micrographs." % (num_particles, num_noise, num_files))
