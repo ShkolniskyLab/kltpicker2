@@ -16,7 +16,6 @@ MAX_ITER = 6 * (10 ** 4)
 MAX_ORDER = 100
 THRESHOLD = 0
 
-
 class KLTPicker:
     """
     KLTpicker object that holds all variables that are used in the computations.
@@ -171,4 +170,4 @@ class KLTPicker:
         row = np.arange(-r, r + 1) * np.pi / r
         Row, Col = np.meshgrid(row, col)
         self.rad_mat_prewhite = np.sqrt(Col ** 2 + Row ** 2)
-        self.rsamp_prewhite, self.idx_rsamp_prewhite = unique_tol(self.rad_mat_prewhite.flatten('F'), 1e-14)
+        self.rsamp_prewhite, self.idx_rsamp_prewhite = unique_tol(self.rad_mat_prewhite.flatten(), 1e-14)

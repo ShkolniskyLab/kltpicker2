@@ -195,7 +195,7 @@ class Micrograph:
             row = np.arange(-r, r + 1) * np.pi / r
             Row, Col = np.meshgrid(row, col)
             rad_mat = np.sqrt(Col ** 2 + Row ** 2)
-            rad_samp, idx = unique_tol(rad_mat.flatten('F'), 1e-14)
+            rad_samp, idx = unique_tol(rad_mat.flatten(), 1e-14)
         else:
             rad_samp, idx = kltpicker.rsamp_prewhite, kltpicker.idx_rsamp_prewhite
         rad_samp_tmp = rad_samp[rad_samp <= np.max(self.r * np.pi)]

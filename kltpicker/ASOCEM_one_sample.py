@@ -32,7 +32,7 @@ class DataHolder:
         self.I_patches_vector = np.empty(((self.size_x // area) * (self.size_y // area), self.cov_mat_size))
         I_patches = self.I_patches
         for x in range(self.size_x // area):
-            for y in range(self.size_x // area):
+            for y in range(self.size_y // area):
                 I_patches[x, y] = self.I[x * area:(x + 1) * area, y * area:(y + 1) * area].flatten()
 
         self.I_patches_vector = np.reshape(I_patches, ((self.size_x // area) * (self.size_y // area), self.cov_mat_size))
@@ -120,15 +120,29 @@ def ASOCEM_ver1(micrograph, particle_size, downscale_size, area_size, contaminat
 
     # Require odd area_size, and odd downscale_size such that area_size | downscale_size
     area_size = area_size - 1 if area_size % 2 == 0 else area_size
-    while downscale_size % area_size != 0 or downscale_size % 2 == 0:
-        downscale_size -= 1
+
+    downscale_size_max = downscale_size
+
+    while downscale_size_max % area_size != 0 or downscale_size_max % 2 == 0:
+        downscale_size_max -= 1
+
+    scalingSz = downscale_size_max / max(micrograph.shape)
+    downscale_size_min = np.floor(scalingSz * min(micrograph.shape))
+
+    while downscale_size_min % area_size != 0 or downscale_size_min % 2 == 0:
+        downscale_size_min -= 1
+
+    if micrograph.shape[0] >= micrograph.shape[1]:
+        size_x, size_y = int(downscale_size_max), int(downscale_size_min)
+    else:
+        size_x, size_y = int(downscale_size_min), int(downscale_size_max)
 
     # De-noising filter
     sigma = 1.
     I = gaussian_filter(micrograph, sigma, mode='nearest', truncate=np.ceil(2 * sigma) * sigma)
 
     # Rescaling
-    I = cryo_downsample(I, (downscale_size, downscale_size))
+    I = cryo_downsample(I, (size_x, size_y))
 
     # Executing ASOCEM
     phi = ASOCEM(I, area_size, contamination_criterion)
@@ -212,7 +226,7 @@ def chan_vesse_process(I, area, dt, nu, eps, max_iter, tol, contamination_criter
 
 
 def initialize_phi_0(size_x, size_y):
-    x, y = np.meshgrid(np.arange(-(size_x // 2), size_x // 2 + 1), np.arange(-(size_y // 2), size_y // 2 + 1))
+    x, y = np.meshgrid(np.arange(-(size_y // 2), size_y // 2 + 1), np.arange(-(size_x // 2), size_x // 2 + 1))
     phi_0 = (min(size_x, size_y) / 3) ** 2 - (x ** 2 + y ** 2)
     phi_0 /= np.max(np.abs(phi_0))
     return neumann_bound_cond_mod(phi_0)
