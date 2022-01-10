@@ -1,374 +1,181 @@
 from pathlib import Path
-import sys
-import progressbar
-import subprocess
-import time
-import argparse
-import os
-import re
-import random
+import numpy as np
+import scipy.special as ssp
+from .cryo_utils import lgwt
+from .util import unique_tol
+from .kltpicker_input import get_start_time
+from multiprocessing import Pool, cpu_count
 
-try:
-    import cupy
+# Globals:
+EPS = 10 ** (-2)  # Convergence term for ALS.
+PERCENT_EIG_FUNC = 0.99
+NUM_QUAD_NYS = 2 ** 7
+NUM_QUAD_KER = 2 ** 7
+MAX_FUN = 400
+MAX_ITER = 6 * (10 ** 4)
+MAX_ORDER = 100
+THRESHOLD = 0
 
-    num_gpus = cupy.cuda.runtime.getDeviceCount()
-except:
-    pass
+class KLTPicker:
+    """
+    KLTpicker object that holds all variables that are used in the computations.
+
+    ...
+    Attributes
+    ----------
+    particle_size : float
+        Size of particles to look for in micrographs.
+    input_dir : str
+        Directory from which to read .mrc files.
+    output_dir : str
+        Output directory in which to write results.
+    no_gpu : bool
+        Optional - whether to use GPU or not.
+    mgscale : float
+        Scaling parameter.
+    max_order : int
+        Maximal order of eigenfunctions.
+    micrographs : np.ndarray
+        Array of 2-D micrographs.
+    patch_size_pick_box : int
+        Particle box size to use.
+    num_of_particles : int
+        Number of particles to pick per micrograph.
+    num_of_noise_images : int
+        Number of noise images.
+    threshold : float
+        Threshold for the picking.
+    patch_size : int
+        Approximate size of particle after downsampling.
+    patch_size_func : int
+        Size of disc for computing the eigenfunctions.
+    max_iter : int
+        Maximal number of iterations for PSD approximation.
+    rsamp_length : int
+    rad_mat : np.ndarray
+    quad_ker : np.ndarray
+    quad_nys : np.ndarray
+    rho : np.ndarray
+    j_r_rho : np.ndarray
+    j_samp : np.ndarray
+    cosine : np.ndarray
+    sine : np.ndarray
+    rsamp_r : np.ndarray
+    r_r : np.ndarray
 
 
-def parse_args(has_cupy):
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--input-dir', help='Full path of input directory.')
-    parser.add_argument('-o', '--output-dir', help='Full path of output directory.', type=check_dir_exists)
-    parser.add_argument('-s', '--particle-size', help='Expected size of particles in pixels.', type=check_positive_int)
-    parser.add_argument('-p', '--num-particles',
-                        help='Number of particles to pick per micrograph. If set to -1 will pick all particles.',
-                        default=-1, type=check_positive_int_or_all)
-    parser.add_argument('-n', '--num-noise', help='Number of noise images to pick per micrograph.',
-                        default=0, type=check_positive_int_or_zero)
-    parser.add_argument('-a', '--use-asocem', action='store_true',
-                        help='Choose to use ASOCEM to remove contaminations.', default=False)
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='Verbose. Choose this to display number of particles and noise images picked from each micrograph during runtime. Otherwise, you get a simple progress bar.',
-                        default=False)
-    parser.add_argument('--max-processes',
-                        help='Limit the number of concurrent processes to run. -1 to let the program choose.',
-                        type=check_positive_int_or_all, default=-1)
-    parser.add_argument('--only-do-unfinished',
-                        help='Only pick micrographs for which no coordinate file exists in the output directory.',
-                        action='store_true', default=False)
-    if has_cupy:
-        parser.add_argument('--no-gpu', action='store_true', help="Don't use GPUs.", default=False)
-        parser.add_argument('--gpus',
-                            help='Indices of GPUs to be used. Valid indices: 0,...,%d. Enter -1 to use all available GPUS.' % (
-                                        num_gpus - 1), default=[-1], nargs='+', type=check_range_gpu)
-        args = parser.parse_args()
-        if args.gpus == [-1]:
-            args.gpus = list(range(num_gpus))
+    Methods
+    -------
+    preprocess()
+        Initializes parameters needed for the computation.
+    get_micrographs()
+        Reads .mrc files, downsamples them and adds them to the KLTpicker object.
+    """
+
+    def __init__(self, args):
+        self.particle_size = args.particle_size
+        self.input_dir = Path(args.input_dir)
+        self.output_dir = Path(args.output_dir)
+        self.output_noise = self.output_dir / ('pickedNoiseParticleSize%d' % args.particle_size)
+        self.output_particles = self.output_dir / ('pickedParticlesParticleSize%d' % args.particle_size)
+        self.output_asocem = self.output_dir / ('AsocemMasksSize%d' % args.particle_size)
+        self.no_gpu = args.no_gpu
+        self.use_asocem = args.use_asocem
+        if args.asocem_param:
+            self.asocem_downsample = args.asocem_downsample
+            self.asocem_area = args.asocem_area
         else:
-            args.gpus = [x for x in args.gpus if x in range(num_gpus)]
-    else:
-        args = parser.parse_args()
-        args.no_gpu = 1
-        args.gpus = []
-    return args
+            self.asocem_downsample = 600
+            self.asocem_area = 5
+        self.save_asocem_masks = args.save_asocem_masks
+        self.mgscale = 101 / args.particle_size
+        self.max_order = MAX_ORDER
+        self.quad_ker = 0
+        self.quad_nys = 0
+        self.rho = 0
+        self.j_r_rho = 0
+        self.j_samp = 0
+        self.cosine = 0
+        self.sine = 0
+        self.rsamp_r = 0
+        self.r_r = 0
+        self.patch_size_pick_box = np.floor(self.mgscale * args.particle_size)
+        self.num_of_particles = args.num_particles
+        self.num_of_noise_images = args.num_noise
+        self.threshold = THRESHOLD
+        patch_size = np.floor(0.8 * self.mgscale * args.particle_size)
+        if np.mod(patch_size, 2) == 0:
+            patch_size -= 1
+        self.patch_size = patch_size
+        patch_size_function = np.floor(0.4 * self.mgscale * args.particle_size)
+        if np.mod(patch_size_function, 2) == 0:
+            patch_size_function -= 1
+        self.patch_size_func = int(patch_size_function)
+        self.max_iter = MAX_ITER
+        self.rsamp_length = 0
+        self.rad_mat = 0
+        self.idx_rsamp = 0
+        self.rad_mat_prewhite = 0
+        self.idx_rsamp_prewhite = 0
+        self.rsamp_prewhite = 0
+        self.verbose = args.verbose
+        self.num_mrcs = 0
+        self.start_time = get_start_time(self.output_dir)
+        print(self.output_dir)
 
+    def preprocess(self):
+        """Initializes parameters."""
+        radmax = np.floor((self.patch_size_func - 1) / 2)
+        x = np.arange(-radmax, radmax + 1, 1)
+        X, Y = np.meshgrid(x, x)
+        rad_mat = np.sqrt(np.square(X) + np.square(Y))
+        rsamp, idx_rsamp = unique_tol(rad_mat.flatten('F'), 1e-14)
+        theta = np.arctan2(Y, X).transpose().flatten()
+        rho, quad_ker = lgwt(NUM_QUAD_KER, 0, np.pi)
+        rho = np.flipud(rho)
+        quad_ker = np.flipud(quad_ker)
+        r, quad_nys = lgwt(NUM_QUAD_NYS, 0, radmax)
+        r = np.flipud(r)
+        quad_nys = np.flipud(quad_nys)
+        r_r = np.outer(r, r)
+        r_rho = np.outer(r, rho)
+        rsamp_r = np.outer(np.ones(len(rsamp)), r)
+        rsamp_rho = np.outer(rsamp, rho)
+        pool = Pool(max(cpu_count()-2, 1))
+        res_j_r_rho = pool.starmap(ssp.jv, [(n, r_rho) for n in range(self.max_order)])
+        res_j_samp = pool.starmap(ssp.jv, [(n, rsamp_rho) for n in range(self.max_order)])
+        pool.close()
+        pool.join()
+        j_r_rho = np.squeeze(res_j_r_rho)
+        j_samp = np.squeeze(res_j_samp)
+        n_times_theta = np.outer(np.arange(self.max_order), theta)
+        cosine = np.cos(n_times_theta)
+        sine = np.sin(n_times_theta)
+        cosine[0, :] = 0
+        self.quad_ker = quad_ker
+        self.quad_nys = quad_nys
+        self.rho = rho
+        self.j_r_rho = j_r_rho
+        self.j_samp = j_samp
+        self.cosine = cosine
+        self.sine = sine
+        self.rsamp_r = rsamp_r
+        self.r_r = r_r
+        self.rad_mat = rad_mat
+        self.idx_rsamp = idx_rsamp
 
-def check_positive_int(value):
-    ivalue = int(value)
-    if ivalue <= 0:
-        raise argparse.ArgumentTypeError("%s is an invalid positive int value" % value)
-    return ivalue
+    def preprocess_prewhiten(self, full_mc_shape):
+        """Initializes parameters."""
+        new_mc_size = np.floor(self.mgscale * full_mc_shape).astype(int)
+        if new_mc_size[0] % 2 == 0:  # Odd size is needed.
+            new_mc_size[0] -= 1
+        if new_mc_size[1] % 2 == 0:  # Odd size is needed.
+            new_mc_size[1] -= 1
+        r = np.floor((new_mc_size[1] - 1) / 2).astype('int')
+        c = np.floor((new_mc_size[0] - 1) / 2).astype('int')
+        col = np.arange(-c, c + 1) * np.pi / c
+        row = np.arange(-r, r + 1) * np.pi / r
+        Row, Col = np.meshgrid(row, col)
+        self.rad_mat_prewhite = np.sqrt(Col ** 2 + Row ** 2)
+        self.rsamp_prewhite, self.idx_rsamp_prewhite = unique_tol(self.rad_mat_prewhite.flatten(), 1e-14)
 
-
-def check_positive_int_or_zero(value):
-    ivalue = int(value)
-    if ivalue < 0:
-        raise argparse.ArgumentTypeError("%s is an invalid non-negative int value" % value)
-    return ivalue
-
-
-def check_positive_int_or_all(value):
-    ivalue = int(value)
-    if ivalue == -1:
-        return ivalue
-    elif ivalue <= 0 and ivalue != -1:
-        raise argparse.ArgumentTypeError("%s is an invalid positive int value" % value)
-    return ivalue
-
-
-def check_range_gpu(value):
-    ivalue = int(value)
-    if ivalue == -1:
-        return ivalue
-    elif ivalue > num_gpus - 1 or ivalue < 0:
-        raise argparse.ArgumentTypeError("%s is not in range 0-%s" % (value, num_gpus - 1))
-    return ivalue
-
-
-def check_dir_exists(value):
-    output_dir = Path(value)
-    if output_dir.is_file():
-        raise argparse.ArgumentTypeError("There is already a file with the name %s." % value)
-    elif not output_dir.exists():
-        raise argparse.ArgumentTypeError(
-            'Directory %s does not exist. Please specify an existing directory.' % output_dir)
-    return value
-
-
-def get_args(has_cupy):
-    print("\n")
-    while True:
-        input_dir = Path(input('Enter full path of micrographs MRC files: '))
-        num_files = len(list(input_dir.glob("*.mrc")))
-        if num_files > 0:
-            print("Found %i MRC files." % len(list(input_dir.glob("*.mrc"))))
-            break
-        elif not input_dir.is_dir():
-            print("%s is not a directory." % input_dir)
-        else:
-            print("Could not find any files in %s." % input_dir)
-
-    while True:
-        particle_size = input('Enter the particle size in pixels: ')
-        try:
-            particle_size = int(particle_size)
-            if particle_size < 1:
-                print("Particle size must be a positive integer.")
-            else:
-                break
-        except ValueError:
-            print("Particle size must be a positive integer.")
-
-    only_do_unfinished = False
-    while True:
-        output_path = input('Enter full path of output directory: ')
-        output_dir = Path(output_path)
-        if output_dir.is_file():
-            print("There is already a file with the name you specified. Please specify a directory.")
-        elif not output_path:
-            print("Please specify a directory.")
-        elif output_dir.parent.exists() and not output_dir.exists():
-            while True:
-                create_dir = input('Output directory does not exist. Create? (Y/N): ')
-                if create_dir.strip().lower().startswith('y'):
-                    Path.mkdir(output_dir)
-                    break
-                elif create_dir.strip().lower().startswith('n'):
-                    print("OK, aborting...")
-                    sys.exit(0)
-                else:
-                    print("Please choose Y/N.")
-            break
-        elif not output_dir.parent.exists():
-            print('Parent directory %s does not exist. Please specify an existing directory.' % output_dir.parent)
-        elif output_dir.is_dir():
-            num_finished = check_output_dir(input_dir, output_dir, particle_size)
-            if num_finished == 1:
-                break
-            elif num_finished == 2:
-                print(
-                    "The directory you specified contains coordinate files for all of the micrographs in the input directory. Aborting...")
-                sys.exit()
-            else:
-                while True:
-                    only_do_unfinished = input(
-                        "The directory you specified contains coordinate files for some of the micrographs in the input directory. Run only on micrographs which have no coordinate file? (Y/N): ")
-                    if only_do_unfinished.strip().lower().startswith('y'):
-                        only_do_unfinished = True
-                        break
-                    elif only_do_unfinished.strip().lower().startswith('n'):
-                        print("OK, aborting...")
-                        sys.exit(0)
-                    else:
-                        print("Please choose Y/N.")
-                break
-            break
-
-    num_particles_to_pick = 0
-    while num_particles_to_pick == 0:
-        pick_all = input('Pick all particles? (Y/N): ')
-        if pick_all.strip().lower().startswith('y'):
-            num_particles_to_pick = -1
-        elif pick_all.strip().lower().startswith('n'):
-            while True:
-                num_particles_to_pick = input('How many particles to pick: ')
-                try:
-                    num_particles_to_pick = int(num_particles_to_pick)
-                    if num_particles_to_pick < 1:
-                        print("Number of particles to pick must be a positive integer.")
-                    else:
-                        break
-                except ValueError:
-                    print("Number of particles to pick must be a positive integer.")
-        else:
-            print("Please choose Y/N.")
-
-    num_noise_to_pick = -1
-    while num_noise_to_pick == -1:
-        pick_noise = input('Pick noise images? (Y/N): ')
-        if pick_noise.strip().lower().startswith('n'):
-            num_noise_to_pick = 0
-        elif pick_noise.strip().lower().startswith('y'):
-            while True:
-                num_noise_to_pick = input('How many noise images to pick: ')
-                try:
-                    num_noise_to_pick = int(num_noise_to_pick)
-                    if num_noise_to_pick < 1:
-                        print("Number of noise images to pick must be a positive integer.")
-                    else:
-                        break
-                except ValueError:
-                    print("Number of particles to pick must be a positive integer.")
-        else:
-            print("Please choose Y/N.")
-
-    use_asocem = -1
-    while use_asocem == -1:
-        pick_asocem = input('Do you want to use ASOCEM for contamination removal? (Y/N):')
-        if pick_asocem.strip().lower().startswith('n'):
-            use_asocem = 0
-        elif pick_asocem.strip().lower().startswith('y'):
-            use_asocem = 1
-        else:
-            print("Please choose Y/N.")
-
-    verbose = 0
-    while verbose == 0:
-        verbose_in = input('Display detailed progress? (Y/N): ')
-        if verbose_in.strip().lower().startswith('y'):
-            verbose = True
-        elif verbose_in.strip().lower().startswith('n'):
-            verbose = False
-            break
-        else:
-            print("Please choose Y/N.")
-
-    max_processes = -1
-    while True:
-        max_processes_in = input('Enter maximum number of concurrent processes (-1 to let the program decide): ')
-        try:
-            max_processes = int(max_processes_in)
-            if max_processes < 1 and max_processes != -1:
-                print(
-                    "Maximum number of concurrent processes must be a positive integer (except -1 to let the program decide).")
-            else:
-                break
-        except ValueError:
-            print(
-                "Maximum number of concurrent processes must be a positive integer (except -1 to let the program decide).")
-
-    if has_cupy:
-        no_gpu = 0
-        gpu_indices = []
-        while no_gpu == 0:
-            no_gpu_in = input('Use GPU? (Y/N): ')
-            if no_gpu_in.strip().lower().startswith('n'):
-                no_gpu = 1
-            elif no_gpu_in.strip().lower().startswith('y'):
-                no_gpu == 0
-                while gpu_indices == []:
-                    gpu_indices_in = input(
-                        'Which GPUs would you like to use? (Valid indices: 0,...,%d. Enter -1 to use all): ' % (
-                                    num_gpus - 1))
-                    if gpu_indices_in.strip() == '-1':
-                        gpu_indices = list(range(num_gpus))
-                        break
-                    else:
-                        gpu_indices_split = re.split(',| ', gpu_indices_in)
-                        for gpu_index in gpu_indices_split:
-                            try:
-                                gpu_index = int(gpu_index)
-                                if gpu_index in range(num_gpus):
-                                    gpu_indices.append(gpu_index)
-                            except ValueError:
-                                pass
-                        gpu_indices = list(set(gpu_indices))
-                        if gpu_indices:
-                            break
-                        else:
-                            print("Please specify valid GPU indices, separated by whitespaces or commas.")
-                break
-            else:
-                print("Please choose Y/N.")
-
-    else:
-        no_gpu = 1
-        gpu_indices = []
-    return input_dir, output_dir, particle_size, num_particles_to_pick, num_noise_to_pick, use_asocem, no_gpu, gpu_indices, verbose, max_processes, only_do_unfinished
-
-
-def check_output_dir(input_dir, output_dir, particle_size):
-    """
-    Checks how many coordinate files there are in the output directory with
-    names matching the micrographs in the input directory, if any.
-    If there are no micrographs in input_dir, return 0.
-    If the intersection between coordinate file names and micrograph file 
-    names is empty, return 1.
-    If all micrographs have an output coordinate file, return 2.
-    Else, return list of micrograph names which do not have an output file.
-    """
-    mrcs = [mrc for mrc in input_dir.glob("*.mrc")]
-    if mrcs == []:
-        return 0
-    mrc_names = [mrc.name[:-4] for mrc in mrcs]
-    output_particles_box_path = output_dir / ("pickedParticlesParticleSize%i/box" % particle_size)
-    output = [f for f in output_particles_box_path.glob("*.box")]
-    output_names = [f.name[:-4] for f in output]
-    intersection = list(set(output_names) & set(mrc_names))
-    if len(intersection) == 0:
-        return 1
-    elif len(intersection) == len(mrc_names):
-        return 2
-    else:
-        unfinished = list(set(mrc_names) - set(output_names))
-        return [mrc for mrc in mrcs if mrc.name[:-4] in unfinished]
-
-
-def progress_bar(output_dir, num_mrcs):
-    """
-    Progress bar function that reports the progress of the program, by 
-    periodically checking how many output files have been written. Shows both
-    percentage completed and time elapsed.
-    """
-    start_time = get_start_time(output_dir.parent.parent)
-    num_finished = check_num_finished(output_dir, start_time)
-    bar = progressbar.ProgressBar(maxval=num_mrcs,
-                                  widgets=["[", progressbar.Timer(), "] ", progressbar.Bar('#', '|', '|'), ' (',
-                                           progressbar.Percentage(), ')'])
-    bar.start()
-    while num_finished < num_mrcs:
-        num_finished = check_num_finished(output_dir, start_time)
-        bar.update(num_finished)
-        time.sleep(1)
-    bar.finish()
-    print("Finished successfully!")
-
-
-def check_num_finished(output_dir, start_time):
-    finished = [f for f in output_dir.glob("*.star") if os.path.getmtime(str(f)) > start_time]
-    num_finished = len(finished)
-    return num_finished
-
-
-def get_start_time(output_dir):
-    """
-    For some reason time.time() and getmtime of a file do not appear to be 
-    calculated in the same timezone. So we get the start time by checking the 
-    modification time of a file we create (and immediately delete). A bit ugly,
-    but works.
-    """
-    fp = output_dir / ('%010x' % random.randrange(16 ** 10))
-    with fp.open("w") as f:
-        f.write("hi")
-    start_time = os.path.getmtime(str(fp))
-    os.remove(str(fp))
-    return start_time
-
-
-def check_for_newer_version():
-    """
-    This function checks whether there is a newer version of kltpicker 
-    available on PyPI. If there is, it issues a warning.
-
-    """
-    name = 'kltpicker'
-    # Use pip to try and install a version of kltpicker which does not exist.
-    # In answer, you get all available versions. Find the newest one.
-    latest_version = str(
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '%s==random' % name], capture_output=True, text=True))
-    latest_version = latest_version[latest_version.find('(from versions:') + 15:]
-    latest_version = latest_version[:latest_version.find(')')]
-    latest_version = latest_version.replace(' ', '').split(',')[-1]
-
-    if latest_version == 'none':  # Got an unexpected response.
-        pass
-    else:  # Use pip to determine the installed version.
-        current_version = str(
-            subprocess.run([sys.executable, '-m', 'pip', 'show', name], capture_output=True, text=True))
-        current_version = current_version[current_version.find('Version:') + 8:]
-        current_version = current_version[:current_version.find('\\n')].replace(' ', '')
-        if latest_version != current_version:
-            print(
-                "NOTE: you are running an old version of %s (%s). A newer version (%s) is available, please upgrade." % (
-                name, current_version, latest_version))

@@ -4,10 +4,10 @@ import cv2
 from skimage import measure
 import skimage
 from scipy.ndimage import gaussian_filter
-import matplotlib.pyplot as plt
 import warnings
 from skimage.morphology import erosion
 from skimage.transform import resize
+import mrcfile
 
 
 warnings.filterwarnings("ignore")
@@ -177,14 +177,10 @@ def ASOCEM_ver1(micrograph, particle_size, downscale_size, area_size, contaminat
     phi_seg_big = resize(phi_seg, out_size, order=0)
 
     if save_path is not None:
-        fig, (ax0, ax1) = plt.subplots(nrows=1, ncols=2)
-        ax0.imshow(I, cmap='gray')
-        ax0.axis('off')
-        ax1.imshow(phi_seg, cmap='gray')
-        ax1.axis('off')
+        save_phi_seg = resize(phi_seg, micrograph.shape, order=0)
 
-        fig.savefig(save_path)
-        fig.clear(True)
+        with mrcfile.new(save_path, overwrite=True) as mrc_fh:
+            mrc_fh.set_data(save_phi_seg.astype('float32').T)
 
     return phi_seg_big
 
