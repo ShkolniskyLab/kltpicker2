@@ -81,12 +81,8 @@ class KLTPicker:
         self.output_asocem = self.output_dir / ('AsocemMasksSize%d' % args.particle_size)
         self.no_gpu = args.no_gpu
         self.use_asocem = args.use_asocem
-        if args.asocem_param:
-            self.asocem_downsample = args.asocem_downsample
-            self.asocem_area = args.asocem_area
-        else:
-            self.asocem_downsample = 600
-            self.asocem_area = 5
+        self.asocem_downsample = args.asocem_downsample
+        self.asocem_area = args.asocem_area
         self.save_asocem_masks = args.save_asocem_masks
         self.mgscale = 101 / args.particle_size
         self.max_order = MAX_ORDER
