@@ -83,7 +83,7 @@ class KLTPicker:
         self.use_asocem = args.use_asocem
         self.asocem_downsample = args.asocem_downsample
         self.asocem_area = args.asocem_area
-        self.save_asocem_masks = args.save_asocem_masks
+        self.save_asocem_masks = args.save_asocem
         self.mgscale = 101 / args.particle_size
         self.max_order = MAX_ORDER
         self.quad_ker = 0

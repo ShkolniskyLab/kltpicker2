@@ -221,7 +221,7 @@ def main():
 
     else:  # User didn't enter arguments, use interactive mode to get arguments.
         args = parse_args(HAS_CUPY)  # Initiate args with default values.
-        args.input_dir, args.output_dir, args.particle_size, args.num_particles, args.num_noise, args.use_asocem, args.save_asocem_masks, args.asocem_downsample, args.asocem_area, args.no_gpu, args.gpus, args.verbose, args.max_processes, args.only_do_unfinished = get_args(HAS_CUPY)
+        args.input_dir, args.output_dir, args.particle_size, args.num_particles, args.num_noise, args.use_asocem, args.save_asocem, args.asocem_downsample, args.asocem_area, args.no_gpu, args.gpus, args.verbose, args.max_processes, args.only_do_unfinished = get_args(HAS_CUPY)
 
     # Handle user options:
     # If max_processes limit not set, set it to infinity.
