@@ -2,13 +2,13 @@
 
 KLT Picker: particle picking using data-driven optimal templates.
 
-Current version: 1.2.8
+Current version: 2.0
 
-Project's homepage: https://github.com/ShkolniskyLab/kltpicker
+Project's homepage: https://github.com/ShkolniskyLab/kltpicker2
 
-Date: 10/2020
+Date: 01/2022
 
-This is the Python version containing the complete source code of the KLT Picker. A MATLAB version is available at https://github.com/ShkolniskyLab/kltpicker_matlab.
+This is the Python version containing the complete source code of the KLT Picker. A MATLAB version is available at https://github.com/ShkolniskyLab/kltpicker2_matlab.
 
 Please cite the following paper when using this package: 
 Eldar A, Landa B, Shkolnisky Y. KLT picker: Particle picking using data-driven optimal templates. J Struct Biol. 2020 May;210(2) 107473.
