@@ -1,6 +1,6 @@
 import numpy as np
-from .util import f_trans_2, stdfilter, trig_interpolation, radial_avg, fftcorrelate, compute_log_test_n, \
-    trig_interpolation_mat, unique_tol
+from .util import f_trans_2, stdfilter, trig_interpolation, radial_avg, fftcorrelate, trig_interpolation_mat,\
+    unique_tol, fftconvolve2d_gpu
 from scipy import signal
 from .cryo_utils import lgwt, cryo_epsds, cryo_prewhiten, picking_from_scoring_mat, als_find_min
 
@@ -319,8 +319,22 @@ class Micrograph:
         t_mat = 1 / approx_noise_var - kappa_inv
         mu = np.sum(np.log(np.abs(kappa))) - num_of_func * np.log(approx_noise_var)
 
+        p = p[:, :num_of_func]
+        t_mat = t_mat[:num_of_func]
         if not kltpicker.no_gpu:
-            log_test_n = compute_log_test_n(self.noise_mc, p, t_mat, mu)
+            p = cp.asarray(p)
+            t_mat = cp.asarray(t_mat)
+            noise_mc = cp.asarray(self.noise_mc)
+            log_test_mat = cp.zeros((num_of_patch_row, num_of_patch_col))
+            for i in range(self.num_of_func):
+                qp_tmp = cp.reshape(p[:, i], (kltpicker.patch_size_func, kltpicker.patch_size_func), order='F')
+                qp_tmp = cp.flip(cp.flip(qp_tmp, 0), 1)
+                scoreTmp = fftconvolve2d_gpu(noise_mc, qp_tmp)
+                log_test_mat = log_test_mat + t_mat[i] * scoreTmp ** 2
+
+            log_test_mat = log_test_mat - mu
+            neigh = cp.ones((kltpicker.patch_size_func, kltpicker.patch_size_func))
+            log_test_n = cp.asnumpy(fftconvolve2d_gpu(log_test_mat, neigh))
         else:
             log_test_mat = np.zeros((num_of_patch_row, num_of_patch_col))
             for i in range(num_of_func):
