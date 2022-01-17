@@ -22,7 +22,7 @@ The package has been tested on Ubuntu 16.04 and Windows 10. It should probably w
 
 * For **optional** GPU support, the package requires:
   * NVIDIA CUDA GPU with the Compute Capability 3.0 or larger
-  * CUDA Toolkit: v9.0 / v9.2 / v10.0 / v10.1 / v10.2 / v11.0
+  * CUDA Toolkit: v10.0 / v10.1 / v10.2 / v11.0
 
 <h2>Install KLTPicker</h2>
 <h3>Install KLTPicker via pip:</h3>
