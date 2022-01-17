@@ -20,9 +20,7 @@ The package has been tested on Ubuntu 16.04 and Windows 10. It should probably w
 
 * The package makes use of the pyfftw package, which in turn uses the FFTW library. Before installing KLTPicker make sure you have the FFTW library installed on your system: http://www.fftw.org/fftw3_doc/Installation-and-Customization.html#Installation-and-Customization
 
-* For **optional** GPU support, the package requires:
-  * NVIDIA CUDA GPU with the Compute Capability 3.0 or larger
-  * CUDA Toolkit: v10.0 / v10.1 / v10.2 / v11.0
+* For **optional** GPU support: see cupy instalation requirments https://docs.cupy.dev/en/stable/install.html.
 
 <h2>Install KLTPicker</h2>
 <h3>Install KLTPicker via pip:</h3>
