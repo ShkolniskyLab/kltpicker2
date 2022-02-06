@@ -419,7 +419,7 @@ def check_for_newer_version():
     available on PyPI. If there is, it issues a warning.
 
     """
-    name = 'kltpicker'
+    name = 'kltpicker2'
     # Use pip to try and install a version of kltpicker which does not exist.
     # In answer, you get all available versions. Find the newest one.
     latest_version = str(
