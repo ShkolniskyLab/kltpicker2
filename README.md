@@ -27,26 +27,26 @@ The package has been tested on Ubuntu 16.04 and Windows 10. It should probably w
 We recommend installing KLTPicker via pip:
 
 
-    $ pip install kltpicker
+    $ pip install kltpicker2
 
 In order to enable the GPU support (provided that your system satisfies the above requirements):
 
 
-    $ pip install kltpicker[gpu]
+    $ pip install kltpicker2[gpu]
 
 <h3>Install KLTPicker from source</h3>
 The tarball of the source tree is available via pip download kltpicker. You can install KLTPicker from the tarball:
 
 
-    $ pip install kltpicker-x.x.x.tar.gz
+    $ pip install kltpicker2-x.x.x.tar.gz
 
 
 You can also install the development version of KLTPicker from a cloned Git repository:
 
 
-    $ git clone https://github.com/ShkolniskyLab/kltpicker.git
+    $ git clone https://github.com/ShkolniskyLab/kltpicker2.git
 
-    $ cd kltpicker
+    $ cd kltpicker2
 
     $ pip install .
 
@@ -54,13 +54,13 @@ You can also install the development version of KLTPicker from a cloned Git repo
 Use pip to uninstall KLTPicker:
 
 
-    $ pip uninstall kltpicker
+    $ pip uninstall kltpicker2
 
 <h2>Upgrade KLTPicker</h2>
 Just use pip with -U option:
 
 
-    $ pip install -U kltpicker
+    $ pip install -U kltpicker2
 
 <h2>Getting started:</h2>
 Please read the user manual for usage instructions, available at the homepage of the project on Github: https://github.com/ShkolniskyLab/kltpicker
