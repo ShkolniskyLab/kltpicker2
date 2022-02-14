@@ -433,10 +433,8 @@ def check_for_newer_version():
     if latest_version == 'none':  # Got an unexpected response.
         pass
     else:  # Use pip to determine the installed version.
-        current_version = str(
-            subprocess.run([sys.executable, '-m', 'pip', 'show', name], capture_output=True, text=True))
-        current_version = current_version[current_version.find('Version:') + 8:]
-        current_version = current_version[:current_version.find('\\n')].replace(' ', '')
+        import pkg_resources  # part of setuptools
+        current_version = pkg_resources.require('kltpicker2')[0].version
         if latest_version != current_version:
             print(
                 "NOTE: you are running an old version of %s (%s). A newer version (%s) is available, please upgrade." % (
