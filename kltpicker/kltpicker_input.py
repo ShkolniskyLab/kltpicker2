@@ -40,6 +40,8 @@ def parse_args(has_cupy):
     parser.add_argument('--only-do-unfinished',
                         help='Only pick micrographs for which no coordinate file exists in the output directory.',
                         action='store_true', default=False)
+    parser.add_argument('--version', help='Check version', action='store_true', default=False)
+
     if has_cupy:
         parser.add_argument('--no-gpu', action='store_true', help="Don't use GPUs.", default=False)
         parser.add_argument('--gpus',

@@ -184,10 +184,6 @@ def preprocess_klt_prewhite(kltpicker, mrc_file):
 
 
 def main():
-    try:
-        check_for_newer_version()
-    except:
-        pass
     # Because of CUDA limitations, it is impossible to fork processes after
     # invoking CUDA. So we need to use 'spawn' start method instead.
     mp.set_start_method('spawn', force=True)
@@ -198,6 +194,11 @@ def main():
         args = parse_args(HAS_CUPY)
         # Check if user entered the mandatory arguments: input and output
         # directory and particle size. If not, exit.
+        if args.version:
+            import pkg_resources  # part of setuptools
+            version = pkg_resources.require('kltpicker2')[0].version
+            print('kltpicker2 {}'.format(version))
+            exit()
         if args.output_dir is None or args.input_dir is None or args.particle_size is None:
             print(
                 "Error: one or more of the following arguments are missing: input-dir, output-dir, particle-size. For help run kltpicker -h")
@@ -222,6 +223,12 @@ def main():
     else:  # User didn't enter arguments, use interactive mode to get arguments.
         args = parse_args(HAS_CUPY)  # Initiate args with default values.
         args.input_dir, args.output_dir, args.particle_size, args.num_particles, args.num_noise, args.use_asocem, args.save_asocem, args.asocem_downsample, args.asocem_area, args.no_gpu, args.gpus, args.verbose, args.max_processes, args.only_do_unfinished = get_args(HAS_CUPY)
+
+    # Check newer version
+    try:
+        check_for_newer_version()
+    except:
+        pass
 
     # Handle user options:
     # If max_processes limit not set, set it to infinity.
