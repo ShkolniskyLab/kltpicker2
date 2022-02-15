@@ -6,12 +6,12 @@ with open(path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 
 setup(name='kltpicker2',
       version='2.0.1',
-      description='KLT picker',
+      description='KLT Picker: Particle picking using data-driven optimal templates',
       long_description=long_description,
       long_description_content_type='text/markdown',
       url='https://github.com/ShkolniskyLab/kltpicker2',
-      author='Dalit Cohen',
-      author_email='dalitcohen@mail.tau.ac.il',
+      author='Yoel Shkolnisky',
+      author_email='yoelsh@tauex.tau.ac.il',
       packages=find_packages(),
       license='GNU General Public License v3.0',
       entry_points={
