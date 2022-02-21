@@ -2,7 +2,7 @@
 
 KLT Picker: particle picking using data-driven optimal templates.
 
-Current version: 2.0
+Current version: 2.0.1
 
 Project's homepage: https://github.com/ShkolniskyLab/kltpicker2
 
