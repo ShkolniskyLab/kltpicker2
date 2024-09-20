@@ -42,9 +42,15 @@ def get_micrograph(mrc_file, picker):
     """Reads an mrc file and downsamples it."""
     mgscale = picker.mgscale
     use_asocem = picker.use_asocem
-    mrc = mrcfile.open(mrc_file, permissive=True)
-    mrc_data = mrc.data.astype('float64').transpose()
-    mrc.close()
+    
+    try: 
+        mrc = mrcfile.open(mrc_file, permissive=True)
+        mrc_data = mrc.data.astype('float64').transpose()
+        mrc.close()
+    except Exception as e:
+        print(f"Error reading data from {mrc_file}")
+        raise e
+        
     mrc_size = mrc_data.shape
     mrc_data = np.rot90(mrc_data)
     mrc_data_original = mrc_data.copy()
@@ -174,10 +180,15 @@ def get_mrc_batches(params, cpus_per_gpu):
 
 
 def preprocess_klt_prewhite(kltpicker, mrc_file):
-    # Continue preprocess picker
-    mrc = mrcfile.open(mrc_file, permissive=True)
-    mrc_data = mrc.data.astype('float64').transpose()
-    mrc.close()
+    # Continue preprocess picker   
+    try: 
+        mrc = mrcfile.open(mrc_file, permissive=True)
+        mrc_data = mrc.data.astype('float64').transpose()
+        mrc.close()
+    except Exception as e:
+        print(f"Error reading data from {mrc_file}")
+        raise e
+        
     mrc_data = np.rot90(mrc_data)
     mrc_size = np.array(mrc_data.shape)
     kltpicker.preprocess_prewhiten(mrc_size)
